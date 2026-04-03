@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>光熱費ダッシュボード</title>
-<script src="https://script.google.com/macros/s/AKfycbxG6aLyxRA2hF0Qjuslv1cSul9WigQpt4NCkVhSA9KaoUgkwl9YLY5SYDRi7Ubynfsrzw/exec"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -106,7 +106,7 @@
 // ============================================================
 // ★ GASデプロイ後にここのURLを書き換える
 // ============================================================
-const API_URL = 'YOUR_GAS_WEB_APP_URL_HERE';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxG6aLyxRA2hF0Qjuslv1cSul9WigQpt4NCkVhSA9KaoUgkwl9YLY5SYDRi7Ubynfsrzw/exec';
 
 let allData = [], currentIdx = 0;
 let trendChart = null, cmpChart = null;
