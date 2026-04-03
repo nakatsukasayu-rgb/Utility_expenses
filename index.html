@@ -9,20 +9,12 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-    background: #f5f5f7;
-    color: #1d1d1f;
-    min-height: 100vh;
+    background: #f5f5f7; color: #1d1d1f; min-height: 100vh;
   }
   header {
-    background: #fff;
-    border-bottom: 1px solid #e5e5e5;
-    padding: 14px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 10;
+    background: #fff; border-bottom: 1px solid #e5e5e5;
+    padding: 14px 16px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0; z-index: 10;
   }
   header h1 { font-size: 17px; font-weight: 600; }
   #last-updated { font-size: 11px; color: #888; }
@@ -63,6 +55,7 @@
   .chart-wrap { position: relative; width: 100%; }
   .no-prev { font-size: 12px; color: #aaa; text-align: center; padding: 16px 0 8px; }
   #loading { text-align: center; padding: 60px 20px; font-size: 14px; color: #888; }
+  #error-msg { text-align: center; padding: 40px 20px; font-size: 13px; color: #c00; display: none; }
   #app { display: none; }
   @media (prefers-color-scheme: dark) {
     body { background: #1c1c1e; color: #f5f5f7; }
@@ -83,6 +76,7 @@
   <span id="last-updated"></span>
 </header>
 <div id="loading">データを読み込み中...</div>
+<div id="error-msg">データを読み込めませんでした。<br>しばらく待ってから再読み込みしてください。</div>
 <div id="app">
   <div class="container">
     <div class="month-nav">
@@ -109,120 +103,37 @@
 </div>
 
 <script>
+// ============================================================
 // ★ GASデプロイ後にここのURLを書き換える
+// ============================================================
 const API_URL = 'YOUR_GAS_WEB_APP_URL_HERE';
-
-// サンプルデータ（実データ）
-const SAMPLE_RAW = {
-  elec: [
-    {month:'2025-04',cost:3577,usage:107},{month:'2025-05',cost:8001,usage:221},
-    {month:'2025-06',cost:6440,usage:174},{month:'2025-07',cost:6896,usage:191},
-    {month:'2025-08',cost:8678,usage:267},{month:'2025-09',cost:8706,usage:274},
-    {month:'2025-10',cost:7556,usage:232},{month:'2025-11',cost:8888,usage:260},
-    {month:'2025-12',cost:10902,usage:324},{month:'2026-01',cost:19508,usage:580},
-    {month:'2026-02',cost:19598,usage:667},{month:'2026-03',cost:13826,usage:477},
-  ],
-  gas: [
-    {month:'2025-04',cost:2338,usage:12},{month:'2025-05',cost:5102,usage:25},
-    {month:'2025-06',cost:4772,usage:23},{month:'2025-07',cost:3597,usage:16},
-    {month:'2025-08',cost:2747,usage:12},{month:'2025-09',cost:2704,usage:12},
-    {month:'2025-10',cost:3054,usage:14},{month:'2025-11',cost:4884,usage:25},
-    {month:'2025-12',cost:5015,usage:26},{month:'2026-01',cost:7064,usage:40},
-    {month:'2026-02',cost:5685,usage:35},{month:'2026-03',cost:5586,usage:34},
-  ],
-  // 水道: {start:'YYYY-MM', end:'YYYY-MM', cost:金額, usage:m3}
-  // 実際のデータが入ったらここに追加する
-  // 例: {start:'2025-04', end:'2025-06', cost:3200, usage:18}
-  water: [
-    {start:'2025-03', end:'2025-04', cost:2407,  usage:7},
-    {start:'2025-05', end:'2025-06', cost:6233,  usage:23},
-    {start:'2025-07', end:'2025-08', cost:6504,  usage:24},
-    {start:'2025-09', end:'2025-10', cost:6504,  usage:24},
-    {start:'2025-11', end:'2025-12', cost:5681,  usage:21},
-    {start:'2026-01', end:'2026-02', cost:6504,  usage:24},
-  ],
-};
-
-// 水道を2か月に1/2ずつ按分してマップ化
-function buildWaterMap(waterList) {
-  const map = {};
-  for (const w of waterList) {
-    const half = Math.round(w.cost / 2);
-    const halfU = Math.round(w.usage / 2);
-    for (const m of [w.start, w.end]) {
-      if (!map[m]) map[m] = {cost:0, usage:0};
-      map[m].cost  += half;
-      map[m].usage += halfU;
-    }
-  }
-  return map;
-}
-
-// GAS APIのレスポンスを内部形式に変換
-// GASのシート列: 年月, 電気料金, 電気kWh, ガス料金, ガスm3,
-//                水道開始月, 水道終了月, 水道料金, 水道m3
-function parseApiData(rows) {
-  const raw = { elec:[], gas:[], water:[] };
-  for (const r of rows) {
-    if (r.elecCost) raw.elec.push({month:r.month, cost:r.elecCost, usage:r.elecKwh});
-    if (r.gasCost)  raw.gas.push({month:r.month,  cost:r.gasCost,  usage:r.gasM3});
-    if (r.waterCost && r.waterStart && r.waterEnd)
-      raw.water.push({start:r.waterStart, end:r.waterEnd, cost:r.waterCost, usage:r.waterM3});
-  }
-  return raw;
-}
-
-// 月ごとのデータ配列を生成
-function buildMonthlyData(raw) {
-  const waterMap = buildWaterMap(raw.water);
-  const monthSet = new Set([
-    ...raw.elec.map(d=>d.month),
-    ...raw.gas.map(d=>d.month),
-    ...Object.keys(waterMap),
-  ]);
-  return [...monthSet].sort().map(m => {
-    const e = raw.elec.find(d=>d.month===m) || {};
-    const g = raw.gas.find(d=>d.month===m)  || {};
-    const w = waterMap[m] || {};
-    return {
-      month:m, elecCost:e.cost||0, elecKwh:e.usage||0,
-      gasCost:g.cost||0, gasM3:g.usage||0,
-      waterCost:w.cost||0, waterM3:w.usage||0,
-      waterApprox: !!w.cost,
-    };
-  });
-}
 
 let allData = [], currentIdx = 0;
 let trendChart = null, cmpChart = null;
 
 async function loadData() {
-  let raw;
-  if (API_URL === 'YOUR_GAS_WEB_APP_URL_HERE') {
-    raw = SAMPLE_RAW;
-    document.getElementById('last-updated').textContent = 'サンプルデータ';
-  } else {
-    try {
-      const res = await fetch(API_URL);
-      raw = parseApiData(await res.json());
-      document.getElementById('last-updated').textContent = '更新: ' + new Date().toLocaleDateString('ja-JP');
-    } catch(e) {
-      raw = SAMPLE_RAW;
-      document.getElementById('last-updated').textContent = '読込エラー';
-    }
+  try {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error('fetch failed');
+    allData = await res.json();
+    allData.sort((a, b) => a.month.localeCompare(b.month));
+    document.getElementById('last-updated').textContent =
+      '更新: ' + new Date().toLocaleDateString('ja-JP');
+    currentIdx = allData.length - 1;
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    render();
+  } catch(e) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error-msg').style.display = 'block';
   }
-  allData = buildMonthlyData(raw);
-  currentIdx = allData.length - 1;
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-  render();
 }
 
 function prevYear(month) {
-  const [y,m] = month.split('-');
-  return allData.find(d => d.month === (parseInt(y)-1)+'-'+m) || null;
+  const [y, m] = month.split('-');
+  return allData.find(d => d.month === (parseInt(y) - 1) + '-' + m) || null;
 }
-function pct(c,p) { return Math.round((c-p)/p*100); }
+function pct(c, p) { return Math.round((c - p) / p * 100); }
 
 function badgeHtml(curr, prev, approx) {
   const ap = approx ? '<span class="badge badge-approx">按分値</span>' : '';
@@ -236,29 +147,29 @@ function badgeHtml(curr, prev, approx) {
 function render() {
   const d = allData[currentIdx];
   const prev = prevYear(d.month);
-  const [y,m] = d.month.split('-');
+  const [y, m] = d.month.split('-');
 
   document.getElementById('month-label').textContent = `${y}年${parseInt(m)}月`;
   document.getElementById('btn-prev').disabled = currentIdx === 0;
-  document.getElementById('btn-next').disabled = currentIdx === allData.length-1;
+  document.getElementById('btn-next').disabled = currentIdx === allData.length - 1;
 
   const items = [
-    {label:'電気', dot:'#F5C518', cost:d.elecCost, usage:`${d.elecKwh} kWh`,  prevCost:prev?.elecCost,  approx:false},
-    {label:'ガス', dot:'#F97316', cost:d.gasCost,  usage:`${d.gasM3} m³`,     prevCost:prev?.gasCost,   approx:false},
-    {label:'水道', dot:'#38BDF8', cost:d.waterCost, usage:d.waterM3?`${d.waterM3} m³`:'−', prevCost:prev?.waterCost||null, approx:d.waterApprox},
+    { label:'電気', dot:'#F5C518', cost:d.elecCost,  usage:`${d.elecKwh} kWh`,               prevCost:prev?.elecCost  || null, approx:false },
+    { label:'ガス', dot:'#F97316', cost:d.gasCost,   usage:`${d.gasM3} m³`,                   prevCost:prev?.gasCost   || null, approx:false },
+    { label:'水道', dot:'#38BDF8', cost:d.waterCost, usage:d.waterM3 ? `${d.waterM3} m³` : '−', prevCost:prev?.waterCost || null, approx:d.waterApprox },
   ];
 
   document.getElementById('cards').innerHTML = items.map(it => `
     <div class="card">
       <div class="card-label"><span class="dot" style="background:${it.dot}"></span>${it.label}</div>
-      <div class="card-amount">${it.cost ? '¥'+it.cost.toLocaleString() : '−'}</div>
+      <div class="card-amount">${it.cost ? '¥' + it.cost.toLocaleString() : '−'}</div>
       <div class="card-usage">${it.usage}</div>
-      ${badgeHtml(it.cost, it.prevCost||null, it.approx)}
+      ${badgeHtml(it.cost, it.prevCost, it.approx)}
     </div>
   `).join('');
 
-  const total = (d.elecCost||0)+(d.gasCost||0)+(d.waterCost||0);
-  const prevTotal = prev ? (prev.elecCost||0)+(prev.gasCost||0)+(prev.waterCost||0) : null;
+  const total = (d.elecCost || 0) + (d.gasCost || 0) + (d.waterCost || 0);
+  const prevTotal = prev ? (prev.elecCost || 0) + (prev.gasCost || 0) + (prev.waterCost || 0) : null;
   document.getElementById('total-bar').innerHTML = `
     <span class="label">合計</span>
     <span style="display:flex;align-items:center;gap:6px">
@@ -267,29 +178,29 @@ function render() {
     </span>
   `;
 
-  const recent = allData.slice(Math.max(0,currentIdx-5), currentIdx+1);
-  const labels = recent.map(r => { const[,mm]=r.month.split('-'); return parseInt(mm)+'月'; });
+  const recent = allData.slice(Math.max(0, currentIdx - 5), currentIdx + 1);
+  const labels = recent.map(r => { const [, mm] = r.month.split('-'); return parseInt(mm) + '月'; });
   if (trendChart) trendChart.destroy();
   trendChart = new Chart(document.getElementById('trendChart'), {
-    type:'bar',
-    data:{ labels, datasets:[
-      {label:'電気', data:recent.map(r=>r.elecCost),  backgroundColor:'#F5C518', borderRadius:3, stack:'a'},
-      {label:'ガス', data:recent.map(r=>r.gasCost),   backgroundColor:'#F97316', borderRadius:3, stack:'a'},
-      {label:'水道', data:recent.map(r=>r.waterCost), backgroundColor:'#38BDF8', borderRadius:3, stack:'a'},
+    type: 'bar',
+    data: { labels, datasets: [
+      { label:'電気', data:recent.map(r => r.elecCost),  backgroundColor:'#F5C518', borderRadius:3, stack:'a' },
+      { label:'ガス', data:recent.map(r => r.gasCost),   backgroundColor:'#F97316', borderRadius:3, stack:'a' },
+      { label:'水道', data:recent.map(r => r.waterCost), backgroundColor:'#38BDF8', borderRadius:3, stack:'a' },
     ]},
-    options:{
+    options: {
       responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ¥${ctx.parsed.y.toLocaleString()}`}}},
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => `${ctx.dataset.label}: ¥${ctx.parsed.y.toLocaleString()}` }}},
       scales:{
-        x:{stacked:true, ticks:{color:'#888',font:{size:11}}, grid:{display:false}},
-        y:{stacked:true, ticks:{color:'#888',font:{size:10},callback:v=>'¥'+Math.round(v/1000)+'k'}, grid:{color:'rgba(0,0,0,0.06)'}},
+        x:{ stacked:true, ticks:{color:'#888', font:{size:11}}, grid:{display:false} },
+        y:{ stacked:true, ticks:{color:'#888', font:{size:10}, callback: v => '¥' + Math.round(v / 1000) + 'k'}, grid:{color:'rgba(0,0,0,0.06)'} },
       }
     }
   });
 
   const cmpEl = document.getElementById('cmp-content');
   if (!prev) {
-    cmpEl.innerHTML = `<p class="no-prev">${parseInt(y)-1}年${parseInt(m)}月のデータがまだありません。<br>データが蓄積されると表示されます。</p>`;
+    cmpEl.innerHTML = `<p class="no-prev">${parseInt(y) - 1}年${parseInt(m)}月のデータがまだありません。<br>データが蓄積されると表示されます。</p>`;
     if (cmpChart) { cmpChart.destroy(); cmpChart = null; }
     return;
   }
@@ -304,27 +215,28 @@ function render() {
   `;
   if (cmpChart) cmpChart.destroy();
   cmpChart = new Chart(document.getElementById('cmpChart'), {
-    type:'bar',
-    data:{
-      labels:['電気','ガス','水道'],
-      datasets:[
-        {label:'前年', data:[prev.elecCost,prev.gasCost,prev.waterCost||0], backgroundColor:'#ccc', borderRadius:3},
-        {label:'今年', data:[d.elecCost,d.gasCost,d.waterCost||0], backgroundColor:['#F5C518','#F97316','#38BDF8'], borderRadius:3},
+    type: 'bar',
+    data: {
+      labels: ['電気', 'ガス', '水道'],
+      datasets: [
+        { label:'前年', data:[prev.elecCost, prev.gasCost, prev.waterCost || 0], backgroundColor:'#ccc', borderRadius:3 },
+        { label:'今年', data:[d.elecCost, d.gasCost, d.waterCost || 0], backgroundColor:['#F5C518','#F97316','#38BDF8'], borderRadius:3 },
       ]
     },
-    options:{
+    options: {
       responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ¥${ctx.parsed.y.toLocaleString()}`}}},
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => `${ctx.dataset.label}: ¥${ctx.parsed.y.toLocaleString()}` }}},
       scales:{
-        x:{ticks:{color:'#888',font:{size:12}}, grid:{display:false}},
-        y:{ticks:{color:'#888',font:{size:10},callback:v=>'¥'+Math.round(v/1000)+'k'}, grid:{color:'rgba(0,0,0,0.06)'}},
+        x:{ ticks:{color:'#888', font:{size:12}}, grid:{display:false} },
+        y:{ ticks:{color:'#888', font:{size:10}, callback: v => '¥' + Math.round(v / 1000) + 'k'}, grid:{color:'rgba(0,0,0,0.06)'} },
       }
     }
   });
 }
 
-document.getElementById('btn-prev').addEventListener('click', ()=>{ if(currentIdx>0){currentIdx--;render();} });
-document.getElementById('btn-next').addEventListener('click', ()=>{ if(currentIdx<allData.length-1){currentIdx++;render();} });
+document.getElementById('btn-prev').addEventListener('click', () => { if (currentIdx > 0) { currentIdx--; render(); } });
+document.getElementById('btn-next').addEventListener('click', () => { if (currentIdx < allData.length - 1) { currentIdx++; render(); } });
+
 loadData();
 </script>
 </body>
