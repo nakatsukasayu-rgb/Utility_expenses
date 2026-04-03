@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>光熱費ダッシュボード</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    min-height: 100vh;
+  }
+  header {
+    background: #fff;
+    border-bottom: 1px solid #e5e5e5;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 17px; font-weight: 600; }
+  #last-updated { font-size: 11px; color: #888; }
+  .container { padding: 16px; max-width: 600px; margin: 0 auto; }
+  .month-nav {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    background: #fff; border-radius: 12px; padding: 12px; margin-bottom: 14px;
+  }
+  .month-nav button {
+    width: 36px; height: 36px; border: 1px solid #d1d1d6;
+    border-radius: 50%; background: #fff; font-size: 16px; cursor: pointer;
+  }
+  .month-nav button:disabled { opacity: 0.3; cursor: default; }
+  #month-label { font-size: 18px; font-weight: 600; min-width: 120px; text-align: center; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .card { background: #fff; border-radius: 12px; padding: 12px 10px; }
+  .card-label { font-size: 11px; color: #888; margin-bottom: 4px; display: flex; align-items: center; gap: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .card-amount { font-size: 18px; font-weight: 700; line-height: 1; margin-bottom: 3px; }
+  .card-usage { font-size: 11px; color: #888; margin-bottom: 6px; }
+  .badge { display: inline-flex; align-items: center; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 99px; }
+  .badge-up   { background: #fff0f0; color: #c00; }
+  .badge-down { background: #f0fff4; color: #090; }
+  .badge-same { background: #f5f5f5; color: #888; }
+  .badge-none { background: #f5f5f5; color: #aaa; font-weight: 400; }
+  .badge-approx { background: #fffbe6; color: #996600; font-weight: 400; font-size: 9px; margin-left: 3px; }
+  .total-bar {
+    background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .total-bar .label { font-size: 13px; color: #555; }
+  .total-bar .amount { font-size: 22px; font-weight: 700; }
+  .section { background: #fff; border-radius: 12px; padding: 14px 14px 10px; margin-bottom: 14px; }
+  .section-title { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 10px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #666; margin-bottom: 8px; }
+  .legend span { display: flex; align-items: center; gap: 4px; }
+  .legend-sq { width: 9px; height: 9px; border-radius: 2px; }
+  .chart-wrap { position: relative; width: 100%; }
+  .no-prev { font-size: 12px; color: #aaa; text-align: center; padding: 16px 0 8px; }
+  #loading { text-align: center; padding: 60px 20px; font-size: 14px; color: #888; }
+  #app { display: none; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1c1c1e; color: #f5f5f7; }
+    header, .card, .month-nav, .total-bar, .section { background: #2c2c2e; }
+    header { border-bottom-color: #3a3a3c; }
+    .card-label, .card-usage, .label, .section-title, .legend { color: #aaa; }
+    .month-nav button { background: #3a3a3c; border-color: #48484a; color: #f5f5f7; }
+    .badge-up   { background: #3d1010; color: #ff6b6b; }
+    .badge-down { background: #0d2e1a; color: #4cd964; }
+    .badge-same, .badge-none { background: #3a3a3c; color: #888; }
+    .badge-approx { background: #2e2600; color: #ffd060; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>光熱費ダッシュボード</h1>
+  <span id="last-updated"></span>
+</header>
+<div id="loading">データを読み込み中...</div>
+<div id="app">
+  <div class="container">
+    <div class="month-nav">
+      <button id="btn-prev">&#8592;</button>
+      <span id="month-label"></span>
+      <button id="btn-next">&#8594;</button>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="total-bar" id="total-bar"></div>
+    <div class="section">
+      <div class="section-title">過去6か月の推移</div>
+      <div class="legend">
+        <span><span class="legend-sq" style="background:#F5C518"></span>電気</span>
+        <span><span class="legend-sq" style="background:#F97316"></span>ガス</span>
+        <span><span class="legend-sq" style="background:#38BDF8"></span>水道</span>
+      </div>
+      <div class="chart-wrap" style="height:200px"><canvas id="trendChart"></canvas></div>
+    </div>
+    <div class="section">
+      <div class="section-title">前年同月比較</div>
+      <div id="cmp-content"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ★ GASデプロイ後にここのURLを書き換える
+const API_URL = 'YOUR_GAS_WEB_APP_URL_HERE';
+
+// サンプルデータ（実データ）
+const SAMPLE_RAW = {
+  elec: [
+    {month:'2025-04',cost:3577,usage:107},{month:'2025-05',cost:8001,usage:221},
+    {month:'2025-06',cost:6440,usage:174},{month:'2025-07',cost:6896,usage:191},
+    {month:'2025-08',cost:8678,usage:267},{month:'2025-09',cost:8706,usage:274},
+    {month:'2025-10',cost:7556,usage:232},{month:'2025-11',cost:8888,usage:260},
+    {month:'2025-12',cost:10902,usage:324},{month:'2026-01',cost:19508,usage:580},
+    {month:'2026-02',cost:19598,usage:667},{month:'2026-03',cost:13826,usage:477},
+  ],
+  gas: [
+    {month:'2025-04',cost:2338,usage:12},{month:'2025-05',cost:5102,usage:25},
+    {month:'2025-06',cost:4772,usage:23},{month:'2025-07',cost:3597,usage:16},
+    {month:'2025-08',cost:2747,usage:12},{month:'2025-09',cost:2704,usage:12},
+    {month:'2025-10',cost:3054,usage:14},{month:'2025-11',cost:4884,usage:25},
+    {month:'2025-12',cost:5015,usage:26},{month:'2026-01',cost:7064,usage:40},
+    {month:'2026-02',cost:5685,usage:35},{month:'2026-03',cost:5586,usage:34},
+  ],
+  // 水道: {start:'YYYY-MM', end:'YYYY-MM', cost:金額, usage:m3}
+  // 実際のデータが入ったらここに追加する
+  // 例: {start:'2025-04', end:'2025-06', cost:3200, usage:18}
+  water: [
+    {start:'2025-03', end:'2025-04', cost:2407,  usage:7},
+    {start:'2025-05', end:'2025-06', cost:6233,  usage:23},
+    {start:'2025-07', end:'2025-08', cost:6504,  usage:24},
+    {start:'2025-09', end:'2025-10', cost:6504,  usage:24},
+    {start:'2025-11', end:'2025-12', cost:5681,  usage:21},
+    {start:'2026-01', end:'2026-02', cost:6504,  usage:24},
+  ],
+};
+
+// 水道を2か月に1/2ずつ按分してマップ化
+function buildWaterMap(waterList) {
+  const map = {};
+  for (const w of waterList) {
+    const half = Math.round(w.cost / 2);
+    const halfU = Math.round(w.usage / 2);
+    for (const m of [w.start, w.end]) {
+      if (!map[m]) map[m] = {cost:0, usage:0};
+      map[m].cost  += half;
+      map[m].usage += halfU;
+    }
+  }
+  return map;
+}
+
+// GAS APIのレスポンスを内部形式に変換
+// GASのシート列: 年月, 電気料金, 電気kWh, ガス料金, ガスm3,
+//                水道開始月, 水道終了月, 水道料金, 水道m3
+function parseApiData(rows) {
+  const raw = { elec:[], gas:[], water:[] };
+  for (const r of rows) {
+    if (r.elecCost) raw.elec.push({month:r.month, cost:r.elecCost, usage:r.elecKwh});
+    if (r.gasCost)  raw.gas.push({month:r.month,  cost:r.gasCost,  usage:r.gasM3});
+    if (r.waterCost && r.waterStart && r.waterEnd)
+      raw.water.push({start:r.waterStart, end:r.waterEnd, cost:r.waterCost, usage:r.waterM3});
+  }
+  return raw;
+}
+
+// 月ごとのデータ配列を生成
+function buildMonthlyData(raw) {
+  const waterMap = buildWaterMap(raw.water);
+  const monthSet = new Set([
+    ...raw.elec.map(d=>d.month),
+    ...raw.gas.map(d=>d.month),
+    ...Object.keys(waterMap),
+  ]);
+  return [...monthSet].sort().map(m => {
+    const e = raw.elec.find(d=>d.month===m) || {};
+    const g = raw.gas.find(d=>d.month===m)  || {};
+    const w = waterMap[m] || {};
+    return {
+      month:m, elecCost:e.cost||0, elecKwh:e.usage||0,
+      gasCost:g.cost||0, gasM3:g.usage||0,
+      waterCost:w.cost||0, waterM3:w.usage||0,
+      waterApprox: !!w.cost,
+    };
+  });
+}
+
+let allData = [], currentIdx = 0;
+let trendChart = null, cmpChart = null;
+
+async function loadData() {
+  let raw;
+  if (API_URL === 'YOUR_GAS_WEB_APP_URL_HERE') {
+    raw = SAMPLE_RAW;
+    document.getElementById('last-updated').textContent = 'サンプルデータ';
+  } else {
+    try {
+      const res = await fetch(API_URL);
+      raw = parseApiData(await res.json());
+      document.getElementById('last-updated').textContent = '更新: ' + new Date().toLocaleDateString('ja-JP');
+    } catch(e) {
+      raw = SAMPLE_RAW;
+      document.getElementById('last-updated').textContent = '読込エラー';
+    }
+  }
+  allData = buildMonthlyData(raw);
+  currentIdx = allData.length - 1;
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  render();
+}
+
+function prevYear(month) {
+  const [y,m] = month.split('-');
+  return allData.find(d => d.month === (parseInt(y)-1)+'-'+m) || null;
+}
+function pct(c,p) { return Math.round((c-p)/p*100); }
+
+function badgeHtml(curr, prev, approx) {
+  const ap = approx ? '<span class="badge badge-approx">按分値</span>' : '';
+  if (!prev) return '<span class="badge badge-none">前年データなし</span>' + ap;
+  const p = pct(curr, prev);
+  if (p > 0) return `<span class="badge badge-up">▲${p}%</span>${ap}`;
+  if (p < 0) return `<span class="badge badge-down">▼${Math.abs(p)}%</span>${ap}`;
+  return `<span class="badge badge-same">前年と同じ</span>${ap}`;
+}
+
+function render() {
+  const d = allData[currentIdx];
+  const prev = prevYear(d.month);
+  const [y,m] = d.month.split('-');
+
+  document.getElementById('month-label').textContent = `${y}年${parseInt(m)}月`;
+  document.getElementById('btn-prev').disabled = currentIdx === 0;
+  document.getElementById('btn-next').disabled = currentIdx === allData.length-1;
+
+  const items = [
+    {label:'電気', dot:'#F5C518', cost:d.elecCost, usage:`${d.elecKwh} kWh`,  prevCost:prev?.elecCost,  approx:false},
+    {label:'ガス', dot:'#F97316', cost:d.gasCost,  usage:`${d.gasM3} m³`,     prevCost:prev?.gasCost,   approx:false},
+    {label:'水道', dot:'#38BDF8', cost:d.waterCost, usage:d.waterM3?`${d.waterM3} m³`:'−', prevCost:prev?.waterCost||null, approx:d.waterApprox},
+  ];
+
+  document.getElementById('cards').innerHTML = items.map(it => `
+    <div class="card">
+      <div class="card-label"><span class="dot" style="background:${it.dot}"></span>${it.label}</div>
+      <div class="card-amount">${it.cost ? '¥'+it.cost.toLocaleString() : '−'}</div>
+      <div class="card-usage">${it.usage}</div>
+      ${badgeHtml(it.cost, it.prevCost||null, it.approx)}
+    </div>
+  `).join('');
+
+  const total = (d.elecCost||0)+(d.gasCost||0)+(d.waterCost||0);
+  const prevTotal = prev ? (prev.elecCost||0)+(prev.gasCost||0)+(prev.waterCost||0) : null;
+  document.getElementById('total-bar').innerHTML = `
+    <span class="label">合計</span>
+    <span style="display:flex;align-items:center;gap:6px">
+      <span class="amount">¥${total.toLocaleString()}</span>
+      ${badgeHtml(total, prevTotal, d.waterApprox)}
+    </span>
+  `;
+
+  const recent = allData.slice(Math.max(0,currentIdx-5), currentIdx+1);
+  const labels = recent.map(r => { const[,mm]=r.month.split('-'); return parseInt(mm)+'月'; });
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('trendChart'), {
+    type:'bar',
+    data:{ labels, datasets:[
+      {label:'電気', data:recent.map(r=>r.elecCost),  backgroundColor:'#F5C518', borderRadius:3, stack:'a'},
+      {label:'ガス', data:recent.map(r=>r.gasCost),   backgroundColor:'#F97316', borderRadius:3, stack:'a'},
+      {label:'水道', data:recent.map(r=>r.waterCost), backgroundColor:'#38BDF8', borderRadius:3, stack:'a'},
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ¥${ctx.parsed.y.toLocaleString()}`}}},
+      scales:{
+        x:{stacked:true, ticks:{color:'#888',font:{size:11}}, grid:{display:false}},
+        y:{stacked:true, ticks:{color:'#888',font:{size:10},callback:v=>'¥'+Math.round(v/1000)+'k'}, grid:{color:'rgba(0,0,0,0.06)'}},
+      }
+    }
+  });
+
+  const cmpEl = document.getElementById('cmp-content');
+  if (!prev) {
+    cmpEl.innerHTML = `<p class="no-prev">${parseInt(y)-1}年${parseInt(m)}月のデータがまだありません。<br>データが蓄積されると表示されます。</p>`;
+    if (cmpChart) { cmpChart.destroy(); cmpChart = null; }
+    return;
+  }
+  cmpEl.innerHTML = `
+    <div class="legend" style="margin-bottom:8px">
+      <span><span class="legend-sq" style="background:#ccc"></span>前年</span>
+      <span><span class="legend-sq" style="background:#F5C518"></span>電気</span>
+      <span><span class="legend-sq" style="background:#F97316"></span>ガス</span>
+      <span><span class="legend-sq" style="background:#38BDF8"></span>水道</span>
+    </div>
+    <div class="chart-wrap" style="height:160px"><canvas id="cmpChart"></canvas></div>
+  `;
+  if (cmpChart) cmpChart.destroy();
+  cmpChart = new Chart(document.getElementById('cmpChart'), {
+    type:'bar',
+    data:{
+      labels:['電気','ガス','水道'],
+      datasets:[
+        {label:'前年', data:[prev.elecCost,prev.gasCost,prev.waterCost||0], backgroundColor:'#ccc', borderRadius:3},
+        {label:'今年', data:[d.elecCost,d.gasCost,d.waterCost||0], backgroundColor:['#F5C518','#F97316','#38BDF8'], borderRadius:3},
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ¥${ctx.parsed.y.toLocaleString()}`}}},
+      scales:{
+        x:{ticks:{color:'#888',font:{size:12}}, grid:{display:false}},
+        y:{ticks:{color:'#888',font:{size:10},callback:v=>'¥'+Math.round(v/1000)+'k'}, grid:{color:'rgba(0,0,0,0.06)'}},
+      }
+    }
+  });
+}
+
+document.getElementById('btn-prev').addEventListener('click', ()=>{ if(currentIdx>0){currentIdx--;render();} });
+document.getElementById('btn-next').addEventListener('click', ()=>{ if(currentIdx<allData.length-1){currentIdx++;render();} });
+loadData();
+</script>
+</body>
+</html>
